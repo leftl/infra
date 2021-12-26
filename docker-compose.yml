@@ -1,0 +1,245 @@
+version: "3.3"
+
+services:
+  adguard:
+    image: adguard/adguardhome
+    container_name: adguard
+    hostname: adguard
+    restart: unless-stopped  
+    cap_add:
+      - NET_ADMIN
+    environment:
+      - TZ=${TZ}
+    volumes:
+      - ${APP}/adguard/work:/opt/adguardhome/work
+      - ${APP}/adguard/conf:/opt/adguardhome/conf
+    ports:
+      - "53:53/tcp"
+      - "53:53/udp"
+      - "67:67/udp"
+      - "68:68"
+      - "8083:80/tcp"
+      - "444:443/tcp"
+      - "853:853/tcp"
+      - "3001:3000/tcp"
+
+  # used as a resolver for adguard, not acessible outside of the docker network.
+  unbound:
+    image: mvance/unbound
+    container_name: unbound
+    hostname: unbound
+    restart: unless-stopped  
+    # volumes:
+    #   - ${APP}/unbound/a-records.conf:/opt/unbound/etc/unbound/a-records.conf:ro
+    expose:
+      - "53"
+
+  sonarr:
+    image: ghcr.io/linuxserver/sonarr
+    container_name: sonarr
+    hostname: sonarr
+    restart: unless-stopped
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=${TZ}
+      - UMASK=022
+    volumes:
+      - ${APP}/sonarr/config:/config
+      - ${POOL}/homemovies:/homemovies
+      - ${POOL}/downloads:/downloads
+    ports:
+      - "8989:8989"
+
+  jackett:
+    image: ghcr.io/linuxserver/jackett
+    container_name: jackett
+    hostname: jackett
+    restart: unless-stopped
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=${TZ}
+    volumes:
+      - ${APP}/jackett/config:/config
+      - ${POOL}/blackhole/watch:/downloads
+    ports:
+      - "9117:9117"
+
+  jellyfin:
+    image: ghcr.io/linuxserver/jellyfin
+    container_name: jellyfin
+    hostname: jellyfin
+    restart: unless-stopped
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=${TZ}
+      - UMASK=022
+      - JELLYFIN_PublishedServerUrl=jellyfin.${DOMAIN}
+    volumes:
+      - ${APP}/jellyfin/config:/config
+      - ${POOL}/blackhole/transcode:/transcode
+      - ${POOL}/homemovies:/data/homemovies:ro
+    ports:
+      - "8096:8096"
+      - "8920:8920"
+    # Only required for hardware acceleration
+    devices:
+      - /dev/dri/renderD128:/dev/dri/renderD128
+      - /dev/dri/card0:/dev/dri/card0
+
+  ddclient:
+    image: ghcr.io/linuxserver/ddclient
+    container_name: ddclient
+    hostname: ddclient
+    restart: unless-stopped
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=${TZ}
+    volumes:
+      - ${APP}/ddclient/config:/config
+    labels:
+      - "traefik.enable=false"
+
+  caddy:
+    image: caddy-cloudflare
+    container_name: caddy
+    hostname: caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      - CF_API_TOKEN=${CF_API_TOKEN}
+      - TT=touch
+    volumes:
+      - ${APP}/caddy/Caddyfile:/etc/caddy/Caddyfile
+      #- ${APP}/caddy/srv:/srv
+      - ${APP}/caddy/data:/data
+      - ${APP}/caddy/config:/config
+
+  qbittorrent:
+    image: ghcr.io/linuxserver/qbittorrent
+    container_name: qbittorrent
+    hostname: qbittorrent
+    network_mode: host # for UPnP support
+    restart: unless-stopped
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=${TZ}
+      - WEBUI_PORT=8080
+    volumes:
+      - ${APP}/qbittorrent/config:/config
+      - ${POOL}/downloads:/downloads
+    # ports:
+    #   - 6881:6881
+    #   - 6881:6881/udp
+    #   - 8080:8080
+
+  # README: https://github.com/itzg/docker-minecraft-server/blob/master/README.md
+  minecraft:
+    image: itzg/minecraft-server # tags related to jre version. use env var "VERSION" to fix mc ver.
+    container_name: minecraft
+    hostname: minecraft
+    restart: unless-stopped
+    environment:
+      - EULA=TRUE
+      - TZ=${TZ}
+      - SERVER_NAME=Minecraft Server
+      - MOTD=Fabric Server (1.18.1)
+      - DIFFICULTY=normal
+      - MAX_PLAYERS=12
+      - VIEW_DISTANCE=14
+      - OPS=${MC_OPS_USERNAME}
+      - VERSION=1.18.1
+      - TYPE=FABRIC
+      - ENABLE_AUTOPAUSE=TRUE
+    volumes: 
+      - ${APP}/minecraft/data:/data
+      - ${APP}/minecraft/mods:/mods
+    ports:
+      - "25565:25565"
+      - "25575:25575"
+
+  plex:
+    image: ghcr.io/linuxserver/plex
+    container_name: plex
+    hostname: plex
+    network_mode: host # PLEX_CLAIM is required for intial set-up only in host mode
+    restart: unless-stopped
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - VERSION=docker
+      - UMASK=022
+      - TZ=${TZ}
+      - ADVERTISE_IP=https://plex.${DOMAIN}
+      - PLEX_CLAIM=${PLEX_CLAIM}
+    volumes:
+      - ${APP}/plex/config:/config
+      - ${POOL}/homemovies:/data/homemovies:ro
+      - ${POOL}/blackhole/transcode:/transcode
+    # ports:
+    #   - "32400:32400"
+    #   - "1900:1900/udp"
+    #   - "3005:3005/tcp"
+    #   - "5353:5353/udp"
+    #   - "8324:8324"
+    #   - "32410:32410/udp"
+    #   - "32412:32412/udp"
+    #   - "32413:32413/udp"
+    #   - "32414:32414/udp"
+    #   - "32469:32469"
+    # devices:
+    #   - /dev/dri:/dev/dri
+
+  nextcloud-db:
+    image: mariadb:10.5
+    container_name: nextcloud-db
+    hostname: nextcloud-db
+    command: --transaction-isolation=READ-COMMITTED --binlog-format=ROW
+    restart: unless-stopped
+    expose:
+      - "3306"
+    volumes:
+      - ${APP}/nextcloud-db/var/lib/mysql:/var/lib/mysql
+    environment:
+      - MYSQL_ROOT_PASSWORD=${DB_ROOT_PASS}
+      - MYSQL_PASSWORD=${DB_PASS}
+      - MYSQL_DATABASE=nextcloud
+      - MYSQL_USER=nextcloud
+
+  nextcloud-cache:
+    container_name: nextcloud-cache
+    image: redis:alpine
+    restart: unless-stopped
+    mem_limit: 512m
+    command: redis-server --requirepass ${REDIS_PASS}
+    expose:
+      - "6379"
+
+  nextcloud:
+    image: ghcr.io/linuxserver/nextcloud
+    container_name: nextcloud
+    hostname: nextcloud
+    restart: unless-stopped
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=${TZ}
+    volumes:
+      - ${APP}/nextcloud/config:/config
+      - ${APP}/nextcloud/data:/data
+    ports:
+      - "446:443"
+      - "8082:80"
+    depends_on:
+      - nextcloud-db
+      - nextcloud-cache
+
+networks:
+  default:
+    name: bridge-net
